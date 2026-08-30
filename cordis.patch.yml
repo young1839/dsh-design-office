@@ -1,0 +1,10 @@
+- insert:
+    - id: dsh-design-office
+      name: '@young1839/dsh-design-office'
+      # Per-family enable switches. Families omitted stay enabled.
+      # config:
+      #   enable:
+      #     ppt: true
+      #     pdf: true
+      #     docx: true
+      #     xlsx: true
