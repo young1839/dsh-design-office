@@ -69,11 +69,21 @@ async function main() {
     const docxOut = path.join(ws, 'bug-test-watermark.docx');
     await createDocx(docxOut, '水印测试', [{ type: 'paragraph', text: '正文内容' }], { watermark: '机密' });
     const zip = await JSZip.loadAsync(await readFile(docxOut));
-    const xml = await zip.file('word/document.xml').async('string');
-    const wmIdx = xml.indexOf('<w:watermark>');
-    const bodyIdx = xml.indexOf('</w:body>');
-    check('水印在 body 前', wmIdx > -1 && wmIdx < bodyIdx, `(wm=${wmIdx}, body=${bodyIdx})`);
-    check('水印在 <w:background> 内', xml.indexOf('<w:background') < wmIdx);
+    const docXml = await zip.file('word/document.xml').async('string');
+    const bodyIdx = docXml.indexOf('<w:body>');
+    // 水印采用页眉 VML 方案（Word 标准做法），不再注入 document.xml 的 <w:background>
+    const docHasWm = docXml.includes('<w:watermark>');
+    check('document.xml 不再注入 watermark', !docHasWm);
+    // 背景色元素仍唯一且在 body 内
+    const bgCount = (docXml.match(/<w:background/g) || []).length;
+    check('背景元素唯一', bgCount <= 1, `(count=${bgCount})`);
+    // 水印在 header1.xml 内（页眉方案）
+    const headerPath = Object.keys(zip.files).find((f) => /word\/header\d+\.xml$/.test(f));
+    check('存在页眉文件', !!headerPath, `(${headerPath || 'none'})`);
+    if (headerPath) {
+      const hx = await zip.file(headerPath).async('string');
+      check('水印 shape 在页眉内', hx.includes('PowerPlusWaterMarkObject') && hx.includes('机密'), '');
+    }
   } catch (e) {
     check('水印位置', false, String(e));
   }

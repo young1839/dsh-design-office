@@ -33,12 +33,17 @@ async function main() {
     { type: 'table', headers: ['阶段', '时间', '负责人'], rows: [['立项', 'Q1', '张三'], ['开发', 'Q2', '李四']] },
   ], { watermark: '机密', background: 'FEF9E7', accent: '92400E' });
   console.log('  生成:', docxResult.file, '|', docxResult.note);
-  // 验证水印 XML
+  // 验证水印 XML（页眉 VML 方案）与背景色
   const zip = await JSZip.loadAsync(await readFile(docxOut));
   const docXml = await zip.file('word/document.xml').async('string');
-  const hasWatermark = docXml.includes('<w:watermark>');
+  const headerPath = Object.keys(zip.files).find((f) => /word\/header\d+\.xml$/.test(f));
+  let hasWatermark = false;
+  if (headerPath) {
+    const hx = await zip.file(headerPath).async('string');
+    hasWatermark = hx.includes('PowerPlusWaterMarkObject');
+  }
   const hasBg = docXml.includes('<w:background');
-  console.log('  水印 XML:', hasWatermark ? '✓ 已注入' : '✗ 未注入');
+  console.log('  水印(页眉):', hasWatermark ? '✓ 已注入' : '✗ 未注入');
   console.log('  背景 XML:', hasBg ? '✓ 已注入' : '✗ 未注入');
   const text = await readDocx(docxOut);
   console.log('  内容读回:', text.slice(0, 60).replace(/\n/g, ' '));

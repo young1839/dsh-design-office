@@ -2,7 +2,8 @@
 
 **DeepSeek Harness 设计增强版 Office 插件（混合架构）**
 
-- 版本：v3.5（M1+M2+M3 + Skill 识图门禁 + 渲染兼容性修复 + 深度测试）
+- 版本：v0.1.1（M1+M2+M3 + Skill 识图门禁 + 渲染兼容性修复 + Bug 修复 + **DSH 0.1.5-rc.1 版本适配**）
+- 适配宿主：**dsh 0.1.5-rc.1** / `@deepseek-ai/dsh-tools` **0.1.5-rc.2** / cordis 4.0.2 / schemastery 3.18.2（见[第 17 章](#17-版本适配-dsh-015-rc12026-09-11)）
 - 架构：TypeScript 主体 + sharp（C++/libvips）渲染内核 —— 混合架构
 - 定位：制作 / 编辑 / 读取 PPT、PDF、Excel、Word；自动搜索下载素材与模板（工具化、可审计）；用户提供素材时优先采用用户素材
 - 独立性：**不依赖** `@huiliyi37/dsh-office`（已卸载），全部文档能力自建
@@ -27,6 +28,16 @@
 9. [测试与质量保障](#9-测试与质量保障)
 10. [附录](#10-附录)
 11. [Skill 使用指导（核心结构与文件指引）](#11-skill-使用指导核心结构与文件指引)
+12. [Bug 检查记录](#12-bug-检查记录2026-08-30)
+13. [深度兼容性测试](#13-深度兼容性测试2026-08-30)
+14. [识图门禁演进记录](#14-识图门禁演进记录2026-08-31)
+15. [渲染兼容性修复](#15-渲染兼容性修复2026-08-31)
+16. [依赖、安装与卸载](#16-依赖安装与卸载)
+17. [版本适配（→ DSH 0.1.5-rc.1）](#17-版本适配-dsh-015-rc12026-09-11)
+
+> 面向使用者的独立文档：[README](../README.md)、
+> [安装/更新/卸载](docs/install.md)、[提示词指南](docs/prompt-guide.md)、
+> [变更记录](../CHANGELOG.md)。
 
 ---
 
@@ -103,6 +114,9 @@ dsh-design-office/
 │   ├── index.ts              # 插件入口：name/inject/Config/apply（按族注册）
 │   ├── globals.d.ts          # pdfkit/pdf-parse 类型声明
 │   ├── types.ts              # 共享类型（素材/模板/幻灯片/图标）
+│   ├── lib/
+│   │   ├── tool-register.ts  # schemastery → JSON Schema（适配 dsh-tools 受限子集）
+│   │   └── tool-types.ts     # ToolDefinition 等类型（不依赖宿主包）
 │   ├── tools/
 │   │   ├── asset.ts          # asset_search / asset_download / asset_cache_list / asset_purge
 │   │   ├── template.ts       # template_list / template_import
@@ -122,11 +136,22 @@ dsh-design-office/
 ├── scripts/
 │   └── download-icons.mjs    # 离线图标包生成脚本（可重新下载/扩充）
 ├── skills/SKILL.md           # 使用指导 skill（完整内容见第 11 章）
+├── docs/
+│   ├── install.md            # 安装 / 更新 / 卸载 / 故障排查 / 回滚
+│   ├── prompt-guide.md       # AI 生成 PPT/PDF/Word/Excel 的提示词写法
+│   ├── version-adaptation.md # DSH 0.1.5-rc.1 版本适配报告
+│   └── bug-report.md         # Bug 审查与修复报告
 ├── tests/
+│   ├── version-compat.mjs    # 针对当前宿主 dsh-tools 的兼容性实测（含真实加载）
+│   ├── tool-registration-check.mjs # 20 个工具注册契约校验
+│   ├── bug-check.mjs / bug-check2.mjs # Bug 回归断言
 │   ├── e2e-m1.mjs            # M1 端到端：素材→PPT→读回→编辑
 │   ├── e2e-m2.mjs            # M2 端到端：PDF/Word/Excel 生成→读回→合并拆分
 │   └── e2e-m3.mjs            # M3 端到端：离线图标/水印/素材清单/模板填充/LRU
-└── workspace/                # 运行时产物（素材库/演示文件）
+├── CHANGELOG.md              # 版本变更记录
+├── README.md                 # 使用入口（安装/更新/卸载/版本兼容）
+├── PROJECT.md                # 本文档
+└── workspace/                # 运行时产物（未入库，.gitignore 排除）
 ```
 
 ---
@@ -460,20 +485,24 @@ design_*_create(              ▼
 ### 10.1 关键依赖（实际安装版本）
 
 ```
-@deepseek-ai/cordis         ^4.0.1   插件框架（peer）
-@deepseek-ai/dsh-tools      ^0.1.0-rc.5  工具注册（peer，optional）
-@deepseek-ai/schemastery    ^3.18.1  schema
-pptxgenjs                   ^3.12.0  PPT 生成
-pdf-lib                     ^1.17.1  PDF 合并/拆分
-pdfkit                      ^0.15.0  PDF 生成（渐变 + 字体嵌入）
-pdf-parse                   ^1.1.1   PDF 文本提取
-docx                        ^9.7.1   Word 生成
-mammoth                     ^1.12.1  Word 文本提取
-exceljs                     ^4.4.0   Excel 读写
-jszip                       ^3.10.1  OOXML 解包（pptx_read/edit + gradFill 注入）
-sharp                       ^0.33.5  SVG→PNG（C++ 内核）
-typescript                  ^5.x    编译（dev）
+@deepseek-ai/cordis         ^4.0.2        插件框架（peer）
+@deepseek-ai/dsh-tools      ^0.1.5-rc.2   工具注册（peer，optional）
+@deepseek-ai/schemastery    ^3.18.2       schema
+pptxgenjs                   ^3.12.0       PPT 生成
+pdf-lib                     ^1.17.1       PDF 合并/拆分
+pdfkit                      ^0.15.0       PDF 生成（渐变 + 字体嵌入）
+pdf-parse                   ^1.1.1        PDF 文本提取
+docx                        ^9.7.1        Word 生成
+mammoth                     ^1.12.1       Word 文本提取
+exceljs                     ^4.4.0        Excel 读写
+jszip                       ^3.10.1       OOXML 解包（pptx_read/edit + gradFill 注入）
+sharp                       ^0.35.3       SVG→PNG（C++ 内核）
+typescript                  ^7.0.2        编译（dev）
 ```
+
+> 宿主侧版本随之升级：**dsh 0.1.5-rc.1**、dsh-tools 0.1.5-rc.2（见第 17 章）。
+> 其中 schemastery 3.18.2 的数组元素 schema 位于 `inner` 字段——这是第 17 章
+> 「数组 items 退化」问题的关键。
 
 ### 10.2 本机环境实测快照
 
@@ -744,11 +773,14 @@ tests/bug-check2.mjs 功能（XML 完整性/条件格式/降级/并发）✅ 14/
 
 ## 16. 依赖、安装与卸载
 
-### 16.1 插件依赖（package.json）
+> 面向使用者的完整步骤、故障排查与回滚见 [docs/install.md](./docs/install.md)；
+> 本节只记录依赖构成与本机部署事实。
+
+### 16.1 插件依赖（package.json，v0.1.1）
 
 ```
 dependencies:
-  @deepseek-ai/schemastery  ^3.18.1  schemastery schema
+  @deepseek-ai/schemastery  ^3.18.2  schemastery schema
   docx                      ^9.7.1   Word 生成
   exceljs                   ^4.4.0   Excel 读写
   jszip                     ^3.10.1  OOXML 解包（pptx_read/edit + 渐变注入）
@@ -759,12 +791,14 @@ dependencies:
   pptxgenjs                 ^3.12.0  PPT 生成
   sharp                     ^0.35.3  SVG→PNG 渲染（C++ 内核）
 
-peerDependencies:
-  @deepseek-ai/cordis       ^4.0.1   插件框架
-  @deepseek-ai/dsh-tools    ^0.1.0-rc.5  工具注册（optional）
+peerDependencies（随宿主提供，不重复安装）:
+  @deepseek-ai/cordis       ^4.0.2        插件框架
+  @deepseek-ai/dsh-tools    ^0.1.5-rc.2   工具注册（optional）
 
 devDependencies:
-  typescript                编译
+  typescript                ^7.0.2   编译
+engines:
+  node                      >=18
 ```
 
 ### 16.2 系统依赖（插件运行环境）
@@ -778,39 +812,124 @@ devDependencies:
 
 ### 16.3 安装插件（DSH web profile）
 
+`dsh plugin` 是 pnpm 的转发器：装完依赖后会**自动**把声明了 `dsh.bundle` 的包
+追加进 `dsh.profile.bundles`，无需手改 profile 的 package.json。
+
 ```sh
-# 1. 安装依赖（link 到本地项目）
-cd ~/.dsh/profiles/web
-pnpm add /home/young1839/chat/dsh-design-office
+# 1. 取源码并构建（lib/ 是构建产物，不入库）
+git clone https://github.com/young1839/dsh-design-office.git ~/dsh-design-office
+cd ~/dsh-design-office && npm install && npm run build
 
-# 2. 在 package.json 的 dsh.profile.bundles 里加入：
-#    "@young1839/dsh-design-office",
+# 2. link 进 web profile
+dsh plugin --profile web add link:~/dsh-design-office
 
-# 3. 安装 skill（使用指导）
+# 3. 安装 skill（使用指导 + 识图门禁）
 mkdir -p ~/.dsh/skills/dsh-design-office
-cp /home/young1839/chat/dsh-design-office/skills/SKILL.md ~/.dsh/skills/dsh-design-office/
+cp ~/dsh-design-office/skills/SKILL.md ~/.dsh/skills/dsh-design-office/
 
-# 4. 重启 DSH web
+# 4. 重启 DSH web（插件在宿主启动时加载）
 dsh web
 ```
 
-### 16.4 卸载插件
+验证：`dsh --profile web --dump-config | grep -A 2 dsh-design-office`
+应输出包含 `id: dsh-design-office` 的插件行。
+
+### 16.4 更新插件
 
 ```sh
-cd ~/.dsh/profiles/web
-pnpm remove @young1839/dsh-design-office
-# 并从 package.json 的 bundles 删除 '@young1839/dsh-design-office'
-
-# 卸载 skill
-rm -rf ~/.dsh/skills/dsh-design-office
+cd ~/dsh-design-office && git pull && npm install && npm run build
+dsh web                      # link 安装无需重新 add
 ```
 
-### 16.5 发布到 npm（可选）
+GitHub / npm 安装的用 `dsh plugin --profile web update @young1839/dsh-design-office`。
+Skill 是拷贝安装的，更新时需重新 `cp`（见 16.3 第 3 步）。
+
+### 16.5 卸载插件
 
 ```sh
-cd /home/young1839/chat/dsh-design-office
+dsh plugin --profile web remove @young1839/dsh-design-office
+rm -rf ~/.dsh/skills/dsh-design-office
+rm -rf ~/.dsh/design-office      # 可选：素材/模板库
+dsh web
+```
+
+### 16.6 发布到 npm（可选）
+
+```sh
+cd ~/dsh-design-office
 npm login
 npm publish --access public
 # 发布后安装：
-pnpm add @young1839/dsh-design-office
+dsh plugin --profile web add @young1839/dsh-design-office
 ```
+
+---
+
+## 17. 版本适配（→ DSH 0.1.5-rc.1，2026-09-11）
+
+宿主机由早期版本升级到 **dsh 0.1.5-rc.1 / dsh-tools 0.1.5-rc.2** 后，
+插件出现两类失配，均已修复并验证（插件版本 0.1.0 → **0.1.1**）。
+
+### 17.1 代码层失配
+
+| # | 问题 | 根因 | 修复 |
+|---|------|------|------|
+| 1 | 宿主拒绝注册工具：`enum requires type or oneOf` | dsh-tools 的 `assertSupportedJsonSchema` 只接受受限子集，且要求带 `enum`/`const` 的节点必须声明 `type`；schemastery 的 `z.union([...])`/`z.const()` 转换后只有 enum 没有 type | `src/lib/tool-register.ts` 新增 `inferScalarType()`，按字面量补 `type`，混合类型降级 `oneOf` |
+| 2 | **所有数组的 `items` 退化为 `{}`**，模型看不到 `slides`/`content` 等嵌套结构 | schemastery 把元素 schema 存在 **`inner`** 字段，旧代码读的是不存在的 `element` | 数组分支改读 `s.inner` |
+| 3 | 素材库位置随宿主启动目录漂移 | 默认根目录取 `process.cwd()` | 改为 `$DSH_HOME/design-office`（`resolveDefaultDataRoot()`），保留 `data_dir` 覆盖 |
+| 4 | `npm test` 直接失败 | 脚本调用未安装的 vitest | 改为 node 测试套件：`test` / `test:compat` / `test:all` |
+
+### 17.2 部署层失配
+
+- web profile 的依赖指向已清空的旧目录 `/home/young1839/chat/dsh-design-office`；
+- `dsh.profile.bundles` 中**没有**该插件行 → 宿主根本没加载插件
+  （表现为会话里 20 个工具全部消失）。
+
+修复后 `/home/young1839/.dsh/profiles/web/package.json`
+（备份 `package.json.bak-20260911_093745`）：
+
+```jsonc
+"dependencies": {
+  "@young1839/dsh-design-office": "link:/home/young1839/DSH的插件项目/dsh-design-office"
+},
+"dsh": { "profile": { "bundles": [..., "@young1839/dsh-design-office"] } }
+```
+
+并重建 `node_modules/@young1839/dsh-design-office` 符号链接。
+
+### 17.3 仓库完整性修复
+
+`.gitignore` 中的 `lib/` 规则同时匹配了 `src/lib/`，导致
+**`src/lib/tool-register.ts`、`src/lib/tool-types.ts` 从未入库**——
+从 GitHub 克隆后 `npm run build` 必然失败（6 个文件报 `TS2307`）。
+已改为仅忽略根目录的 `/lib/`，并把两个源文件纳入版本控制；
+同时新增 `prepare` 脚本，使 git 安装能自动构建 `lib/`。
+
+### 17.4 新增兼容性测试
+
+`tests/version-compat.mjs` 自动定位宿主 dsh-tools
+（`DSH_DESIGN_OFFICE_DSH_TOOLS` → 常见安装路径 → node 解析；找不到则跳过），校验：
+
+1. 全部工具的参数/输出 schema 通过宿主子集校验；
+2. 数组项 schema 完整（实测 `slides.items` 不再是 `{}`）；
+3. PTC / Code Mode 可渲染为 TypeScript、Python SDK；
+4. 参数值校验生效（非法枚举被拒绝）；
+5. 用真实 `ToolRuntime` + cordis `Context` 加载插件，确认注册 **20/20** 工具；
+6. 经真实 `ToolRuntime` 执行 `template_list`（execute → render → 输出契约）；
+7. `data_dir` 默认解析与 `Config` 解析。
+
+当前结果：**11 通过 0 失败**。
+
+### 17.5 生效方式与回滚
+
+插件在宿主启动时加载，**必须重启**：
+
+```sh
+dsh web
+```
+
+回滚：`git checkout <上一版本> && npm install && npm run build`；
+profile 配置用 `package.json.bak-20260911_093745` 覆盖后重启。
+
+详细报告见 [docs/version-adaptation.md](./docs/version-adaptation.md)。
+

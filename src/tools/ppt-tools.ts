@@ -6,6 +6,7 @@ import z from '@deepseek-ai/schemastery';
 import { createPptx, readPptx, editPptx, fillTemplate } from './ppt.js';
 import { TemplateService } from '../services/template-service.js';
 import { defineToolCompat } from '../lib/tool-register.js';
+import type { ToolFamilyContext } from '../index.js';
 
 const slideDefSchema = z
   .object({
@@ -38,8 +39,9 @@ const iconPlacementSchema = z
   })
   .required();
 
-export function registerPptTools(ctx: any, register: any) {
-  const getTemplate = () => new TemplateService(process.cwd());
+export function registerPptTools(ctx: any, family: ToolFamilyContext) {
+  const register = family.register;
+  const getTemplate = () => new TemplateService(family.dataRoot);
 
   register(defineToolCompat({
     name: 'design_pptx_create',

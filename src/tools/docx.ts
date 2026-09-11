@@ -186,31 +186,51 @@ export async function createDocx(
 }
 
 /**
- * 注入 Word 水印（OOXML <w:watermark>）
+ * 注入 Word 水印（页眉 VML 方案 —— Word 插入水印的标准实现）
  *
- * 知识点：
- * - 水印是 <w:document> 下 <w:background><w:watermark>，包含 VML 形状 <v:shape> 文字
- * - VML 命名空间：xmlns:v="urn:schemas-microsoft-com:vml" + xmlns:o="urn:schemas-microsoft-com:office:office"
- * - 旋转 -30°、半透明灰、宋体
+ * 知识点（按实测修正）：
+ * - Word 的"水印"实际是放在 **页眉（header）** 里的 VML 图形（v:shape + v:textpath），
+ *   浮于正文之上、随每页重复，非 <w:background>。
+ * - 旧实现把 <w:watermark> 塞进 document.xml 的 <w:background>，违反 ECMA-376
+ *   元素顺序（background 必须在 body 首）且与背景色元素冲突 → Word/LibreOffice
+ *   均不显示水印（实测）。
+ * - 正确做法：把 VML 水印 shape 追加到 word/header1.xml 的 <w:hdr> 内。
+ *   背景色仍由 docx 库原生 <w:background w:color> 负责，两者互不干扰。
+ * - 水印文字需 XML 转义（& < > 引号），否则文档损坏。
  */
 async function injectWatermark(docxBuffer: Buffer, text: string): Promise<Buffer> {
   const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(docxBuffer);
-  const docPath = Object.keys(zip.files).find((f) => f === 'word/document.xml');
-  if (!docPath) return docxBuffer;
-  let xml = await zip.file(docPath)!.async('string');
+  const headerPath = Object.keys(zip.files).find((f) => /^word\/header\d+\.xml$/.test(f));
+  if (!headerPath) return docxBuffer; // 无页眉则不注入（文档无 header 时水印无处可放）
+  let xml = await zip.file(headerPath)!.async('string');
 
-  // docx 库生成的 document.xml 已自带 xmlns:v / xmlns:o（VML 命名空间），无需重复声明
-  // 但保险起见，若缺失则补上
-  if (!xml.includes('xmlns:v=')) {
-    xml = xml.replace('<w:document ', '<w:document xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" ');
+  const esc = (s: string) => s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  // Word 水印 VML：水平垂直居中、旋转 315°(-45°)、浅灰半透明
+  const wmXml =
+    `<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr>` +
+    `<w:r><w:pict>` +
+    `<v:shape id="PowerPlusWaterMarkObject" o:spid="_x0000_s2049" type="#_x0000_t136"` +
+    ` style="position:absolute;margin-left:0;margin-top:0;width:500pt;height:250pt;z-index:-251658752;mso-wrap-edited:f;mso-position-horizontal:center;mso-position-horizontal-relative:margin;mso-position-vertical:center;mso-position-vertical-relative:margin"` +
+    ` o:allowincell="f" filled="f" stroked="f">` +
+    `<v:fill opacity="0.15"/>` +
+    `<v:textpath style="font-family:&quot;宋体&quot;;font-size:1pt" string="${esc(text)}"/>` +
+    `</v:shape>` +
+    `</w:pict></w:r></w:p>`;
+
+  // 追加到 </w:hdr> 前
+  const hdrClose = '</w:hdr>';
+  if (xml.includes(hdrClose)) {
+    xml = xml.replace(hdrClose, `${wmXml}${hdrClose}`);
+  } else {
+    return docxBuffer;
   }
-
-  const watermarkXml = `<w:background w:color="FFFFFF"><w:watermark><v:shape id="PowerPlusWaterMarkObject" o:spid="_x0000_s1025" type="#_x0000_t136" style="position:absolute;margin-left:0;margin-top:0;width:500pt;height:250pt;z-index:-251658752;mso-wrap-edited:f;mso-position-horizontal:center;mso-position-horizontal-relative:margin;mso-position-vertical:center;mso-position-vertical-relative:margin" o:allowincell="f" filled="f" stroked="f"><v:fill opacity="0.15"/><v:textpath style="font-family:&quot;宋体&quot;;font-size:1pt" string="${text}"/></v:shape></w:watermark></w:background>`;
-
-  // 插到 <w:body> 之前
-  xml = xml.replace('</w:body>', `${watermarkXml}</w:body>`);
-  zip.file(docPath, xml);
+  zip.file(headerPath, xml);
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
@@ -227,7 +247,8 @@ export async function readDocx(filePath: string): Promise<string> {
   }
 }
 
-export function registerDocxTools(ctx: any, register: any) {
+export function registerDocxTools(ctx: any, family: { register: (d: any) => any }) {
+  const register = family.register;
   register(defineToolCompat({
     name: 'design_docx_create',
     description: '生成设计增强 Word 文档：标题/段落/表格（条纹）/列表；可选封面插画、页眉、水印。',

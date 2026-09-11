@@ -73,7 +73,11 @@ export async function createPdf(
     // 标题
     if (fontOk) doc.font(FONT_PATH);
     doc.fontSize(36).fillColor('#FFFFFF').text(title, 60, 300, { width: 475, align: 'left' });
-    doc.fontSize(14).fillColor('#FFFFFF80').text('DeepSeek Harness · dsh-design-office', 60, 360, { width: 475 });
+    // 副标题：pdfkit 不支持 8 位 hex（#FFFFFF80 会被当 #FFFFFF），用 fillOpacity 实现半透明
+    doc.save();
+    doc.fillOpacity(0.55);
+    doc.fontSize(14).fillColor('#FFFFFF').text('DeepSeek Harness · dsh-design-office', 60, 360, { width: 475 });
+    doc.restore();
     doc.moveDown(2);
 
     // ═══ 内容页 ═══
@@ -207,7 +211,8 @@ export async function splitPdf(filePath: string, outputDir: string, pages?: stri
   return { files };
 }
 
-export function registerPdfTools(ctx: any, register: any) {
+export function registerPdfTools(ctx: any, family: { register: (d: any) => any }) {
+  const register = family.register;
   register(defineToolCompat({
     name: 'design_pdf_create',
     description: '生成设计增强 PDF：渐变封面 + 标题/段落/表格（条纹）/列表 + 页码 + 中文字体嵌入。',

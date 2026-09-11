@@ -5,9 +5,11 @@
 import z from '@deepseek-ai/schemastery';
 import { TemplateService } from '../services/template-service.js';
 import { defineToolCompat } from '../lib/tool-register.js';
+import type { ToolFamilyContext } from '../index.js';
 
-export function registerTemplateTools(ctx: any, register: any) {
-  const getService = () => new TemplateService(process.cwd());
+export function registerTemplateTools(ctx: any, family: ToolFamilyContext) {
+  const register = family.register;
+  const getService = () => new TemplateService(family.dataRoot);
 
   register(defineToolCompat({
     name: 'template_list',

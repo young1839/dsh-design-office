@@ -131,7 +131,8 @@ export async function editXlsx(filePath: string, cell: string, value: CellValue)
   return { modified: true };
 }
 
-export function registerXlsxTools(ctx: any, register: any) {
+export function registerXlsxTools(ctx: any, family: { register: (d: any) => any }) {
+  const register = family.register;
   register(defineToolCompat({
     name: 'design_xlsx_write',
     description: '生成设计增强 Excel：二维数组数据、表头加粗+深色填充、列宽、条件格式色阶、可选图标表头。',

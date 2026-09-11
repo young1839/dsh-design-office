@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build output
-lib/
+# Build output（只忽略仓库根目录的构建产物；src/lib/ 是源码，必须入库）
+/lib/
 
 # Runtime workspace
 workspace/

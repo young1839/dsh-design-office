@@ -8,9 +8,11 @@
 import z from '@deepseek-ai/schemastery';
 import { AssetService } from '../services/asset-service.js';
 import { defineToolCompat } from '../lib/tool-register.js';
+import type { ToolFamilyContext } from '../index.js';
 
-export function registerAssetTools(ctx: any, register: any) {
-  const getService = () => new AssetService(process.cwd());
+export function registerAssetTools(ctx: any, family: ToolFamilyContext) {
+  const register = family.register;
+  const getService = () => new AssetService(family.dataRoot);
 
   register(defineToolCompat({
     name: 'asset_search',

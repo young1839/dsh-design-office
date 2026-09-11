@@ -40,17 +40,21 @@ async function main() {
     const docxOut = path.join(ws, 'bug2-watermark.docx');
     await createDocx(docxOut, '水印完整性', [{ type: 'paragraph', text: '内容' }], { watermark: '机密' });
     const zip = await JSZip.loadAsync(await readFile(docxOut));
-    const xml = await zip.file('word/document.xml').async('string');
-    // 检查 XML 标签闭合：<w:watermark> 有配对
-    const openWm = (xml.match(/<w:watermark>/g) || []).length;
-    const closeWm = (xml.match(/<\/w:watermark>/g) || []).length;
-    check('watermark 标签配对', openWm === 1 && closeWm === 1, `(open=${openWm}, close=${closeWm})`);
-    // v:shape 闭合
-    const openV = (xml.match(/<v:shape/g) || []).length;
-    const closeV = (xml.match(/<\/v:shape>/g) || []).length;
-    check('v:shape 标签配对', openV === 1 && closeV === 1, `(open=${openV}, close=${closeV})`);
-    // 没有未转义 & 或 <>
-    check('无裸 & 符号', !/[^&]&[^a-zA-Z#]/.test(xml.replace(/<[^>]*>/g, '')), '');
+    const headerPath = Object.keys(zip.files).find((f) => /word\/header\d+\.xml$/.test(f));
+    check('存在页眉文件', !!headerPath, `(${headerPath || 'none'})`);
+    if (headerPath) {
+      const xml = await zip.file(headerPath).async('string');
+      // 检查 XML 标签闭合：<v:shape> 有配对
+      const openV = (xml.match(/<v:shape/g) || []).length;
+      const closeV = (xml.match(/<\/v:shape>/g) || []).length;
+      check('v:shape 标签配对', openV === 1 && closeV === 1, `(open=${openV}, close=${closeV})`);
+      check('水印文字存在', xml.includes('机密'), '');
+      check('无裸 & 符号', !/[^&]&[^a-zA-Z#]/.test(xml.replace(/<[^>]*>/g, '')), '');
+    }
+    // document.xml 无重复 background
+    const docXml = await zip.file('word/document.xml').async('string');
+    const bgCount = (docXml.match(/<w:background/g) || []).length;
+    check('document.xml 背景唯一', bgCount <= 1, `(count=${bgCount})`);
   } catch (e) {
     check('docx 水印完整性', false, String(e));
   }

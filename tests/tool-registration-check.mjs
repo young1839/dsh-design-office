@@ -49,13 +49,15 @@ function check(name, ok, detail = '') {
 
 const mock = createMockRegister();
 const ctx = {};
+// 新接口：族注册函数接收 { dataRoot, register }
+const family = { dataRoot: process.cwd(), register: mock.register };
 try {
-  registerAssetTools(ctx, mock.register);
-  registerTemplateTools(ctx, mock.register);
-  registerPptTools(ctx, mock.register);
-  registerPdfTools(ctx, mock.register);
-  registerDocxTools(ctx, mock.register);
-  registerXlsxTools(ctx, mock.register);
+  registerAssetTools(ctx, family);
+  registerTemplateTools(ctx, family);
+  registerPptTools(ctx, family);
+  registerPdfTools(ctx, family);
+  registerDocxTools(ctx, family);
+  registerXlsxTools(ctx, family);
 } catch (e) {
   console.log('注册抛错:', String(e).slice(0, 200));
   fail++;

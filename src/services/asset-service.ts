@@ -74,6 +74,20 @@ export class AssetService {
     return path.join(this.assetsDir, '.manifest.json');
   }
 
+  /** manifest 读-改-写互斥锁（并发 download 会丢更新，测试实证） */
+  private manifestLock: Promise<unknown> = Promise.resolve();
+
+  /** 串行执行 manifest 变更 */
+  private withManifestLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.manifestLock.then(fn, fn);
+    // 无论成功失败都重置链，避免锁死
+    this.manifestLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   /** 网络 GET 带超时与重试 */
   private async fetchWithRetry(url: string, timeoutMs = 10000, retries = 3): Promise<Response> {
     let lastErr: unknown;
@@ -151,7 +165,9 @@ export class AssetService {
     await mkdir(this.assetsDir, { recursive: true });
     let url = id.startsWith('http') ? id : `${ICONIFY_API}/${id}.svg`;
     if (color && url.endsWith('.svg')) {
-      url += `?color=${encodeURIComponent(color)}`;
+      // color 必须带 #（fill="00A3FF" 是非法 SVG 色，渲染为黑）
+      const c = color.trim().startsWith('#') ? color.trim() : `#${color.trim()}`;
+      url += `?color=${encodeURIComponent(c)}`;
     }
     const res = await this.fetchWithRetry(url);
     const buf = Buffer.from(await res.arrayBuffer());
@@ -179,10 +195,12 @@ export class AssetService {
       downloadedAt: new Date().toISOString(),
       sha256: sha,
     };
-    // 写入 manifest（去重：同名覆盖）
-    const manifest = await this.readManifest();
-    manifest[id] = meta;
-    await writeFile(this.manifestPath, JSON.stringify(manifest, null, 2));
+    // 写入 manifest（去重：同名覆盖；并发下载经锁串行化避免丢更新）
+    await this.withManifestLock(async () => {
+      const manifest = await this.readManifest();
+      manifest[id] = meta;
+      await writeFile(this.manifestPath, JSON.stringify(manifest, null, 2));
+    });
     return { ...meta, file: filePath };
   }
 
@@ -210,9 +228,8 @@ export class AssetService {
     return this.readManifest();
   }
 
-  /** 清理素材库 */
+  /** 清理单个文件（按绝对路径或文件名匹配 manifest） */
   async purge(file?: string): Promise<{ removed: number }> {
-    const manifest = await this.readManifest();
     if (file) {
       const abs = path.resolve(file);
       // 路径边界校验：用 path.relative 防 /assets 与 /assets2 误匹配
@@ -221,11 +238,14 @@ export class AssetService {
         throw new Error(`只能清理素材库内文件（拒绝: ${abs}）`);
       }
       await unlink(abs);
-      // 从 manifest 删除
-      for (const [k, v] of Object.entries(manifest)) {
-        if (v.file === file) delete manifest[k];
-      }
-      await writeFile(this.manifestPath, JSON.stringify(manifest, null, 2));
+      // 从 manifest 删除（file 可能是绝对路径或纯文件名）
+      await this.withManifestLock(async () => {
+        const manifest = await this.readManifest();
+        for (const [k, v] of Object.entries(manifest)) {
+          if (v.file === file || v.file === rel || path.join(this.assetsDir, v.file) === abs) delete manifest[k];
+        }
+        await writeFile(this.manifestPath, JSON.stringify(manifest, null, 2));
+      });
       return { removed: 1 };
     }
     // 清空整个素材库
@@ -236,7 +256,9 @@ export class AssetService {
       await unlink(path.join(this.assetsDir, f)).catch(() => {});
       removed++;
     }
-    await writeFile(this.manifestPath, '{}');
+    await this.withManifestLock(async () => {
+      await writeFile(this.manifestPath, '{}');
+    });
     return { removed };
   }
 
@@ -280,21 +302,23 @@ export class AssetService {
    * 缓存 LRU 清理：素材库超过 maxEntries 时删除最旧的（按 downloadedAt）
    */
   async cleanupLRU(maxEntries = 100): Promise<{ removed: number; remaining: number }> {
-    const manifest = await this.readManifest();
-    const entries = Object.entries(manifest).sort(
-      (a, b) => new Date(a[1].downloadedAt).getTime() - new Date(b[1].downloadedAt).getTime(),
-    );
-    let removed = 0;
-    while (entries.length - removed > maxEntries) {
-      const [id, meta] = entries[removed];
-      delete manifest[id];
-      await unlink(path.join(this.assetsDir, meta.file)).catch(() => {});
-      removed++;
-    }
-    if (removed > 0) {
-      await writeFile(this.manifestPath, JSON.stringify(manifest, null, 2));
-    }
-    return { removed, remaining: Object.keys(manifest).length };
+    return this.withManifestLock(async () => {
+      const manifest = await this.readManifest();
+      const entries = Object.entries(manifest).sort(
+        (a, b) => new Date(a[1].downloadedAt).getTime() - new Date(b[1].downloadedAt).getTime(),
+      );
+      let removed = 0;
+      while (entries.length - removed > maxEntries) {
+        const [id, meta] = entries[removed];
+        delete manifest[id];
+        await unlink(path.join(this.assetsDir, meta.file)).catch(() => {});
+        removed++;
+      }
+      if (removed > 0) {
+        await writeFile(this.manifestPath, JSON.stringify(manifest, null, 2));
+      }
+      return { removed, remaining: Object.keys(manifest).length };
+    });
   }
 
   /** 素材库目录大小（供展示） */

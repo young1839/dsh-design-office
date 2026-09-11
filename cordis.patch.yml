@@ -1,10 +1,19 @@
+# dsh-design-office bundle patch：一行把插件挂进 profile。
+#
+# row 的 `name` 从 profile 的 node_modules 解析包
+# （通过 `dsh plugin --profile web add link:<本仓库路径>` 安装）。
+# 包导出 host 侧 `apply`，在同一行注册 20 个工具。
+#
+# 可选配置（默认全开；data_dir 默认 $DSH_HOME/design-office）：
+#   config:
+#     enable:
+#       ppt: true      # 关掉某个族就置 false
+#       pdf: true
+#       docx: true
+#       xlsx: true
+#       assets: true   # 同时控制素材与模板工具
+#     data_dir: /your/path   # 素材/模板库根目录（默认 $DSH_HOME/design-office）
+
 - insert:
     - id: dsh-design-office
       name: '@young1839/dsh-design-office'
-      # Per-family enable switches. Families omitted stay enabled.
-      # config:
-      #   enable:
-      #     ppt: true
-      #     pdf: true
-      #     docx: true
-      #     xlsx: true
